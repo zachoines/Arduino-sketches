@@ -5,10 +5,24 @@
 #include <Wire.h>     // Arduino standard I2C/Two-Wire Library
 #include <ArduinoBLE.h>
 
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
+
+#include "DHT.h";
+#include "Sonar.h"
 #include "wiring_private.h"
 
 #define MAX_ATTEMPTS 5
 #define SLAVE_ADDR 9
+
+// DHT and Sonic Sensor Variables
+#define DHTPIN IN1
+#define DHTTYPE DHT22
+#define TRIGGER_PIN_1  A6
+#define ECHO_PIN_1     A5
+#define TRIGGER_PIN_2  A2
+#define ECHO_PIN_2     A1
 
 
 // Program variables
@@ -19,36 +33,80 @@ volatile boolean process_it;
 uint16_t tfDist;       // Distance
 uint16_t tfFlux;       // Luminous flux or intensity of return signal
 uint16_t tfTemp;       // Temp in °C
-const byte numBytes = 2;
+
+// UART Comms related variables
+const byte numBytes = 3;
 byte receivedBytes[numBytes];
 byte numReceived = 0;
 boolean newData = false;
-const byte interruptPin = 2;
+
+
+DHT* dht;
+Sonar* sonar1;
+Sonar* sonar2;
 
 // Incoming I2C bits from receive interrupt
 uint8_t last_command = 0;
 uint8_t last_data = 0;
 
 // Keep track of current actuator values
-int servoOneAngle = 0;
-int servoTwoAngle = 0;
+byte servoOneAngle = 0;
+byte servoTwoAngle = 0;
 
-int motorOneDutyCycle = 0;
-int motorTwoDutyCycle = 0;
+// Keep track of motor speeds
+signed char motorOneDutyCycle = 0;
+signed char motorTwoDutyCycle = 0;
 
+// Accelerometer related values
+Adafruit_BNO055 bno = Adafruit_BNO055(55);
+adafruit_bno055_offsets_t calibrationData;
+bool previousCalibration = false;
+
+// Datatype for other peripheral sensors
+typedef struct accelSonarLidarData {
+  float distance_to_obstacle[2];
+  double acceleration[3];
+  unsigned short distance_to_target;
+  unsigned long timestamp;
+} sensor_data_t;
+
+// Stores the latest data from sensors
+sensor_data_t lastReading;
+
+// unions for complex type to byte array conversions
 union intToBytes {
-
   char buffer[2];
   uint16_t sensorData;
-
 } converter;
 
+union longToBytes {
+  char buffer[4];
+  unsigned long sensorData;
+} long_converter;
+
+union floatToBytes {
+  char buffer[4];
+  float sensorData;
+} float_converter;
+
+union doubleToBytes {
+  char buffer[8];
+  double sensorData;
+} double_converter;
+
+union allSensorData
+{
+  byte sensorData[sizeof(sensor_data_t)];
+  sensor_data_t data;
+} msg_to_send;
+
+
 // Set up com ports
-Uart masterSerialPort(&sercom0, 5, 6, SERCOM_RX_PAD_1, UART_TX_PAD_0);
+Uart masterSerialPort(&sercom0, 2, 3, SERCOM_RX_PAD_3, UART_TX_PAD_2);
 TwoWire myWire(&sercom3, 0, 1);   // Create the new wire instance assigning it to pin 0 and 1
 
 // Attach the interrupt handler to the SERCOM
-void SERCOM0_Handler()
+void SERCOM0_Handler()    
 {
   masterSerialPort.IrqHandler();
 }
@@ -60,24 +118,32 @@ void setup() {
   while (!Serial);
 
   // Init second serial port
+  pinPeripheral(2, PIO_SERCOM);   
+  pinPeripheral(3, PIO_SERCOM);
   masterSerialPort.begin(9600);
+  while (!masterSerialPort);
 
   // Initialize new I2C Bus
   myWire.begin(SLAVE_ADDR);       // join i2c bus with address #2
-  pinPeripheral(0, PIO_SERCOM);   //Assign SDA function to pin 0
-  pinPeripheral(1, PIO_SERCOM);   //Assign SCL function to pin 1
   myWire.onRequest(secondI2CBusRequestEvent);
   myWire.onReceive(secondI2CBusReceiveEvent);
-
 
   // Init peripheral sensors and actuators
   initServos();
   ScanI2CBus();
   setupTFMini();
   setupMKRMotorCarrier();
+  setupSonicSensors();
+  setupBNO055();
+  
+  // const byte interruptPin = 6;
+  // const byte inPin = 7;
+  // attachInterrupt(digitalPinToInterrupt(interruptPin), initiateSerialTransfer, CHANGE);
+  // pinMode(inPin, INPUT);
 
-
-  attachInterrupt(digitalPinToInterrupt(interruptPin), initiateTransfer, FALLING);
+  Serial.println(2*sizeof(float) + 3*sizeof(double) + sizeof(unsigned short) + sizeof(unsigned long));
+  Serial.println(sizeof(sensor_data_t));
+  Serial.println(sizeof(struct accelSonarLidarData));
 }
 
 void secondI2CBusRequestEvent()
@@ -85,21 +151,20 @@ void secondI2CBusRequestEvent()
   // We will convert float data into a string format by writing to floatToBytes union.
   // Then send the bytes of char array over to the master.
   byte currentAngle[2];
+  signed char currentMotorDutyCycles[2];
+  signed char motorSpeed = (signed char) last_data;
 
   switch (last_command) {
+
+    // Lidar sensor only
     case 0x01:
       converter.sensorData = tfDist;
-      Serial.print("Here we are in request!: ");
-      Serial.println(tfDist);
-      Serial.print("Here is the data: ");
-      Serial.println(converter.sensorData);
       myWire.write(converter.buffer, 2);
       break;
 
+    // Move Servo one
     case 0x02:
       servoOneAngle = last_data;
-      Serial.print("Servo one angle: ");
-      Serial.println(servoOneAngle);
       servo1.setAngle(servoOneAngle);
 
       currentAngle[0] = servoOneAngle;
@@ -107,6 +172,7 @@ void secondI2CBusRequestEvent()
       myWire.write(currentAngle, 2);
       break;
 
+    // Move servo two
     case 0x03:
       servoTwoAngle = last_data;
       Serial.print("Servo two angle: ");
@@ -117,39 +183,81 @@ void secondI2CBusRequestEvent()
       currentAngle[1] = servoTwoAngle;
       myWire.write(currentAngle, 2);
       break;
+
+    // return sonic obstacle detection only
+    case 0x04:
+
+      float_converter.sensorData = lastReading.distance_to_obstacle[0];
+      myWire.write(float_converter.buffer, 4);
+
+      float_converter.sensorData = lastReading.distance_to_obstacle[1];
+      myWire.write(float_converter.buffer, 4);
+      break;
+
+    // Set the duty cycle on motor one, from -100% to 100%
+    case 0x05:
+      if (motorSpeed <= 100 && motorSpeed >= -100) {
+        motorOneDutyCycle = motorSpeed;
+        currentMotorDutyCycles[0] = motorOneDutyCycle;
+        currentMotorDutyCycles[1] = motorTwoDutyCycle;
+        M1.setDuty(last_data);
+        myWire.write((char*)currentMotorDutyCycles, 2);
+      } else {
+        // Return -1 for error
+        currentMotorDutyCycles[0] = 0xFF;
+        currentMotorDutyCycles[1] = 0xFF;
+        myWire.write((char*)currentMotorDutyCycles, 2);
+      }
+      break;
+    // Set the duty cycle on motor two, from -100% to 100%
+    case 0x06:
+      if (motorSpeed <= 100 && motorSpeed >= -100) {
+        motorTwoDutyCycle = last_data;
+        currentMotorDutyCycles[0] = motorOneDutyCycle;
+        currentMotorDutyCycles[1] = motorTwoDutyCycle;
+        M2.setDuty(last_data);
+        myWire.write((char*)currentMotorDutyCycles, 2);
+      } else {
+        // Return -1 for error
+        currentMotorDutyCycles[0] = 0xFF;
+        currentMotorDutyCycles[1] = 0xFF;
+        myWire.write((char*)currentMotorDutyCycles, 2);
+      }
+
+      break;
+
+    case 0x07:
+
+      double_converter.sensorData = lastReading.acceleration[0];
+      myWire.write(double_converter.buffer, 8);
+
+      double_converter.sensorData = lastReading.acceleration[1];
+      myWire.write(double_converter.buffer, 8);
+
+      double_converter.sensorData = lastReading.acceleration[2];
+      myWire.write(double_converter.buffer, 8);
+
+      break;
+
   }
-
-
-
 }
 
+
 void secondI2CBusReceiveEvent(int numReceived) {
-  
+
   int all_bytes;
-  
+
   while ( 1 < myWire.available()) // loop through all but the last
   {
 
     byte extra_zero = myWire.read();
     byte command = myWire.read();
     byte data = myWire.read();
-    all_bytes = ((command & 0xFF) << 8) |  (data & 0xFF);
+    all_bytes = ((command & 0xFF) << 8) | (data & 0xFF);
 
     last_command = command;
     last_data = data;
   }
-
-  Serial.print("Num bytes sent: ");
-  Serial.println(numReceived);
-
-  Serial.print("All data received: ");
-  Serial.println(all_bytes, HEX);
-
-  Serial.print("last_command: ");
-  Serial.println(last_command);
-
-  Serial.print("last_data: ");
-  Serial.println(last_data);
 }
 
 // Attach the interrupt handler to the SERCOM
@@ -162,20 +270,84 @@ extern "C" {
 }
 
 void loop() {
-  while (masterSerialPort.available() > 0) {
-    Serial.println(masterSerialPort.read());
-  }
-
-  getTFMINIPlusData();
-  // recvBytesWithStartEndMarkers();
-
   // Stay in comms with MKR Motor Carrier
   controller.ping();
+
+  // Process data from all sensors
+  getAcceleration();
+  getDistanceToTarget();
+  detectObsticles();
+
+  // Communicate with master over UART
+  recvBytesWithStartEndMarkers();
 }
 
 void initServos() {
   servo1.setAngle(90);
   servo2.setAngle(0);
+}
+
+void printAccel() {
+  sensors_event_t linAccel;
+  bno.getEvent(&linAccel, Adafruit_BNO055::VECTOR_LINEARACCEL);
+  double x = linAccel.acceleration.x;
+  double y = linAccel.acceleration.y;
+  double z = linAccel.acceleration.z;
+
+  Serial.print("Linear Acceleration X: ");
+  Serial.print(x);
+  Serial.print(" Y: ");
+  Serial.print(y);
+  Serial.print(" Z: ");
+  Serial.print(z);
+  Serial.print("\n");
+}
+
+void getAcceleration() {
+  imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+  lastReading.acceleration[0] = euler.x();
+  lastReading.acceleration[1] = euler.y();
+  lastReading.acceleration[2] = euler.z();
+}
+
+void setCalibrationBNO055(adafruit_bno055_offsets_t data) {
+  bno.setSensorOffsets(data);
+  bno.getSensorOffsets(calibrationData);
+}
+
+void setupBNO055() {
+
+  if (!bno.begin()) {
+    Serial.print("BNO055 not detected!");
+    while (1);
+  }
+
+  // External crystal for better accuracy.
+  bno.setExtCrystalUse(true);
+
+  if (previousCalibration) {
+    bno.setSensorOffsets(calibrationData);
+  } else {
+    sensors_event_t event;
+    bno.getEvent(&event);
+
+    int tries = 0;
+    while (!bno.isFullyCalibrated() && ++tries <= MAX_ATTEMPTS) {
+      bno.getEvent(&event);
+      Serial.println("Attempting to calibrate, please rotate sensor...");
+      delay(100);
+    }
+
+    bno.getSensorOffsets(calibrationData);
+  }
+}
+
+void setupSonicSensors() {
+  dht = new DHT(DHTPIN, DHTTYPE);
+  dht->begin();
+
+  sonar1 = new Sonar(TRIGGER_PIN_1, ECHO_PIN_1, dht);
+  sonar2 = new Sonar(TRIGGER_PIN_2, ECHO_PIN_2, dht);
 }
 
 void setupMKRMotorCarrier() {
@@ -216,11 +388,11 @@ void setupTFMini() {
 
 
   // Send commands to device during setup.
-  tfDist = 0;            // Clear device data variables.
+  tfDist = 0;
   tfFlux = 0;
   tfTemp = 0;
 
-  delay(500);            // And wait for half a second.
+  delay(500);
 
   Serial.println( "System reset: ");
   if ( tfmP.sendCommand( SYSTEM_RESET, 0))
@@ -232,7 +404,7 @@ void setupTFMini() {
   Serial.println( "Firmware version: ");
   if ( tfmP.sendCommand( OBTAIN_FIRMWARE_VERSION, 0))
   {
-    Serial.print(tfmP.version[0]); // print three single numbers
+    Serial.print(tfmP.version[0]);
     Serial.print(tfmP.version[1]);
     Serial.println(tfmP.version[2]);
 
@@ -277,31 +449,41 @@ int getTempC() {
   return tfTempC;
 }
 
-void getTFMINIPlusData() {
+void getDistanceToTarget() {
   uint8_t tries = 0;
   while (!tfmP.getData( tfDist, tfFlux, tfTemp) && tries < MAX_ATTEMPTS) {
     tries++;
   }
 }
 
+/* Sonic Sensor methods */
+float FrontObjectDetection() {
+  return sonar1->detect();
+}
+
+float BackObjectDetection() {
+  return sonar2->detect();
+}
+
+int detectObsticles() {
+  lastReading.timestamp = millis();
+  lastReading.distance_to_obstacle[0] = FrontObjectDetection();
+  lastReading.distance_to_obstacle[1] = BackObjectDetection();
+}
+
 
 /* Serial communication functions */
 void recvBytesWithStartEndMarkers() {
-
   static boolean recvInProgress = false;
   static byte ndx = 0;
   byte startMarker = 0x3C;
   byte endMarker = 0x3E;
   byte rb;
 
-  if (newData == true) {
-
-    parseMasterCommand();
-  }
 
   while (masterSerialPort.available() > 0 && newData == false) {
     rb = masterSerialPort.read();
-
+    Serial.println(rb);
 
     if (recvInProgress == true) {
       if (rb != endMarker) {
@@ -310,42 +492,75 @@ void recvBytesWithStartEndMarkers() {
         if (ndx >= numBytes) {
           ndx = numBytes - 1;
         }
-      }
-      else {
+      } else {
         // receivedBytes[ndx] = '\0'; // terminate the string
         recvInProgress = false;
         // numReceived = ndx;  // save the number for use when printing
         ndx = 0;
         newData = true;
       }
-    }
-
-    else if (rb == startMarker) {
+    } else if (rb == startMarker) {
       recvInProgress = true;
     }
   }
+
+
+  parseMasterCommand();
 }
 
 void parseMasterCommand() {
-
   char command = receivedBytes[0];
   switch (command) {
-    case 'A' :
-      Serial.println("We are A");
-      initiateTransfer();
+    case 0x41:
+      Serial.println("here we are in parse command!");
+      initiateSerialTransfer();
       break;
-    case 'B' :
-      Serial.println("We are B");
+
+    case 0x42:
       break;
 
     default :
       return;
   }
 
-
+  receivedBytes[0] = 0x0;
   newData = false;
-
 }
+
+void initiateSerialTransfer() {
+  masterSerialPort.flush();
+  masterSerialPort.write(0x3C);
+
+ 
+  for (int i = 0; i < 2; i++) {
+    
+    float_converter.sensorData = lastReading.distance_to_obstacle[i];
+    for (int j = 0; j < sizeof(float); j++) {
+      masterSerialPort.write(float_converter.buffer[j]);
+    }
+  }
+  
+  for (int i = 0; i < 3; i++) {
+    
+    double_converter.sensorData = lastReading.acceleration[i];
+    for (int j = 0; j < sizeof(double); j++) {
+      masterSerialPort.write(double_converter.buffer[j]);
+    }
+  }
+
+  converter.sensorData = lastReading.distance_to_target;
+  for (int i = 0; i < sizeof(unsigned short); i++) {
+    masterSerialPort.write(converter.buffer[i]);
+  }
+
+  long_converter.sensorData = lastReading.timestamp;
+  for (int i = 0; i < sizeof(unsigned long); i++) {
+    masterSerialPort.write(converter.buffer[i]);
+  }
+ 
+  masterSerialPort.write(0x3E);
+}
+
 
 void ScanI2CBus() {
   byte error, address; //variable for error and I2C address
@@ -383,19 +598,4 @@ void ScanI2CBus() {
     Serial.println("No I2C devices found\n");
   else
     Serial.println("done\n");
-}
-
-void initiateTransfer() {
-  converter.sensorData = getDistance();
-  //  char message[4];
-  //  message[0] = 0x3C;
-  //  message[3] = 0x3E;
-
-  masterSerialPort.write(0x3C);
-
-  for (int i = 0; i < 2; i++) {
-    masterSerialPort.write(converter.buffer[i]);
-  }
-
-  masterSerialPort.write(0x3E);
 }

@@ -83,7 +83,7 @@ void setup()
 {
 
   Serial.begin(9600); // init serial communication
-  while (!Serial);
+  // while (!Serial);
   Wire.begin();       // join i2c bus
 
   // Configuration of connected pins
@@ -93,9 +93,9 @@ void setup()
   int motor_two_input1 = 6;
   int motor_two_input2 = 9;
 
-  int R_PIN = 12;
+  int R_PIN = 10;
   int G_PIN = 11;
-  int B_PIN = 10 ;
+  int B_PIN = 12 ;
 
   motor1 = new DRV8833_MOTOR(motor_one_input1, motor_one_input2);
   motor2 = new DRV8833_MOTOR(motor_two_input1, motor_two_input2);
@@ -247,7 +247,7 @@ void updateMilliliters(float newMilliliters) {
 }
 
 void updateLedBrightness(float brightness) {
-  led->setBrightness(Color::RED, brightness);
+  led->setBrightness(Color::GREEN, brightness);
 }
 
 void ScanI2CBus() {
