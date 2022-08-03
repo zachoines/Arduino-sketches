@@ -10,6 +10,7 @@
   
 */
 #include <Bluepad32.h>
+#include <SerialMessage.h>
 
 // Data
 #define MESSAGE_SIZE_BYTES 8
@@ -63,6 +64,13 @@ struct Signal {
 // Define globals
 Signal newData;
 Signal oldData;
+SerialMessage* comm;
+SerialMessage::MessageConfig messages[] = {                             
+    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING }
+};
 
 GamepadPtr myGamepads[BP32_MAX_GAMEPADS] = {};
 
@@ -77,8 +85,13 @@ void setup() {
   Serial.print("Firmware version installed: ");
   Serial.println(fv);
 
-  // BP32.pinMode(27, OUTPUT);
-  // // BP32.digitalWrite(27, 0);
+  comm = new SerialMessage(
+    &Serial1,
+    1000,
+    messages,
+    4
+  );
+  
 
   // This call is mandatory. It setups Bluepad32 and creates the callbacks.
   BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
@@ -140,10 +153,27 @@ void loop() {
 
   BP32.update();
 
+  short int v1 = 100;
+  short int v2 = 200;
+  short int v3 = 30;
+  short int v4 = 40;
+  comm->set("LeftY", &v1);
+  comm->set("LeftX", &v2);
+  comm->set("RightY", &v3);
+  comm->set("RightX", &v4);
+
+  /*
   for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
     GamepadPtr myGamepad = myGamepads[i];
 
     if (myGamepad && myGamepad->isConnected()) {
+
+
+      // comm->set("LeftY", (void*)myGamepad->axisY());
+      // comm->set("LeftX", (void*)myGamepad->axisX());
+      // comm->set("RightY", (void*)myGamepad->axisRY());
+      // comm->set("RightX", (void*)myGamepad->axisRX());
+      comm->sync();
     
       newData.values[MESSAGE::LeftY] = myGamepad->axisY();
       newData.values[MESSAGE::LeftX] = myGamepad->axisX();
@@ -170,6 +200,6 @@ void loop() {
       oldData = newData;
     }
   }
-
-  delay(150);
+  */
+  delay(1000);
 }

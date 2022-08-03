@@ -1,0 +1,7 @@
+libraries/*
+!libraries/SerialMessage/
+!libraries/SerialMessage/*
+!libraries/SerialMessage/*/*
+!libraries/Motor_Drivers/
+!libraries/Motor_Drivers/*
+!libraries/Motor_Drivers/*/*

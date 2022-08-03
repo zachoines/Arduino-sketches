@@ -1,6 +1,13 @@
 #include "Arduino.h"
 #include <ArduinoBLE.h>
 
+#include <Stream.h>
+#include <HardwareSerial.h>
+#ifdef __AVR__
+	#include <SoftwareSerial.h>
+#endif
+
+
 #ifndef BLECommandParser_h
 #define BLECommandParser_h
 

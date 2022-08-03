@@ -1,6 +1,7 @@
 #include <Stream.h>
 #include <SoftwareSerial.h>
 #include <HardwareSerial.h>
+#include <SerialMessage.h>
 #include "RoboClaw.h"
 
 // Other program constants
@@ -87,6 +88,13 @@ struct Signal {
 // Define globals
 Signal oldData;
 Signal newData;
+SerialMessage* comm;
+SerialMessage::MessageConfig messages[] = {                             
+    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING }
+};
 
 
 void setup() {
@@ -96,6 +104,12 @@ void setup() {
   Serial1.begin(57600);
   while (!Serial1) {;}
   delay(DELAY);
+  comm = new SerialMessage(
+    &Serial1,
+    1000,
+    messages,
+    4
+  );
   Serial.println("Starting...");
   toggleCompressorState();
   toggleSolenoidState();
@@ -103,25 +117,36 @@ void setup() {
 
 
 void loop() {
-
-  if (Serial1.available() >= MESSAGE_SIZE_BYTES) {
-    int numRead = Serial1.readBytes(newData.buffer, MESSAGE_SIZE_BYTES);
-    newData.fromBytes();
-    if (numRead != MESSAGE_SIZE_BYTES) {
-      Serial.println("ERROR: Issue reading commands...");
-    }
-    
-    char buffer[120];
-    snprintf(buffer, sizeof(buffer) - 1,
-              "New Readings: axis L: %i, %i, axis R: %i, %i",
-              newData.values[MESSAGE::LeftY],
-              newData.values[MESSAGE::LeftX],
-              newData.values[MESSAGE::RightY],
-              newData.values[MESSAGE::RightX]
-    );
-    Serial.println(buffer);
-    oldData = newData;
+  while (!comm->sync()) {
+    delay(1000);
   }
+
+  SerialMessage::Message m1 = comm->get("LeftY");
+  SerialMessage::Message m2 = comm->get("LeftX");
+  SerialMessage::Message m3 = comm->get("RightY");
+  SerialMessage::Message m4 = comm->get("RightX");
+
+
+
+
+  // if (Serial1.available() >= MESSAGE_SIZE_BYTES) {
+  //   int numRead = Serial1.readBytes(newData.buffer, MESSAGE_SIZE_BYTES);
+  //   newData.fromBytes();
+  //   if (numRead != MESSAGE_SIZE_BYTES) {
+  //     Serial.println("ERROR: Issue reading commands...");
+  //   }
+    
+  //   char buffer[120];
+  //   snprintf(buffer, sizeof(buffer) - 1,
+  //             "New Readings: axis L: %i, %i, axis R: %i, %i",
+  //             newData.values[MESSAGE::LeftY],
+  //             newData.values[MESSAGE::LeftX],
+  //             newData.values[MESSAGE::RightY],
+  //             newData.values[MESSAGE::RightX]
+  //   );
+  //   Serial.println(buffer);
+  //   oldData = newData;
+  // }
   
   /*
   // Condition to build up pressure until threshold
