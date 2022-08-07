@@ -2,5 +2,8 @@
     "arduino.path": "C:\\Users\\zacho\\Documents\\repos\\Arduino-sketches",
     "arduino.ignoreBoards": [
     
-    ]
+    ],
+    "files.associations": {
+        "xtr1common": "cpp"
+    }
 }

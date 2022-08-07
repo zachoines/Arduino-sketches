@@ -173,12 +173,12 @@ void LinkedList<T>::DeleteFirst()
 template <class T>
 bool LinkedList<T>::next()
 {
-    if(length == 0)
+    if(length == 0) {
         return false;
-
-    if(curr->next == nullptr)
+    } else if(curr->next == nullptr) {
         return false;
-
+    }
+        
     curr = curr->next;
     return true;
 }
@@ -238,19 +238,21 @@ void LinkedList<T>::DeleteCurrent()
 template <class T>
 int LinkedList<T>::Search(T elem)
 {
-    if(length == 0)
+    if (length == 0) {
         return -1;
+    }
 
     int index = -1;
     if(moveToStart()) {
         do {
             index++;
-            if(curr->element == elem)
+            if(curr->element == elem) {
                 return index;
+            }
         } while (next());
-    } else {
-        return -1;
     }
+
+    return -1;
 }
 
 template <class T>

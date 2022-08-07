@@ -2,6 +2,9 @@
 
 #ifndef SerialMessage_h
 #define SerialMessage_h
+#define SLEEP 10
+#define START 0xFF
+#define SIZE 10
 
 
 #include <limits.h>
@@ -22,9 +25,15 @@ public:
         SHORT, 
         INT, 
         FLOAT, 
-        DOUBLE  
+        DOUBLE,
+        LONG  
     };
-    enum DIR { OUTGOING, INCOMING };
+
+    enum DIR { 
+        OUTGOING, 
+        INCOMING 
+    };
+
     typedef struct MessageConfig {
         const char* name;
         TYPE type;
@@ -42,31 +51,21 @@ public:
         sizeof(short int), 
         sizeof(int), 
         sizeof(float), 
-        sizeof(double) 
+        sizeof(double),
+        sizeof(long int)
     }; 
 
   private:
 
-    // Union structures
-    union short_to_bytes {
-        uint8_t bytes[sizes[TYPE::SHORT]];
-        short value;
-    } short_converter;
-
-    union int_to_bytes {
-        uint8_t bytes[sizes[TYPE::INT]];
-        int value;
-    } int_converter;
-
-    union float_to_bytes {
-        uint8_t bytes[sizes[TYPE::FLOAT]];
-        float value;
-    } float_converter;
-
-    union double_to_bytes {
-        uint8_t bytes[sizes[TYPE::DOUBLE]];
-        double value;
-    } double_converter;
+    union byte_converter {
+        uint8_t bytes[sizeof(double)];
+        char c;
+        short int s;
+        int i;
+        float f;
+        double d;
+        long int l;
+    } converter;
     
     // Variables
     bool debug;
@@ -82,19 +81,19 @@ public:
     LinkedList<int> ids;
 
     // Utility functions
-    void* from_bytes(uint8_t buffer[], TYPE type);
-    void to_bytes(uint8_t buffer[], TYPE type, void* value);
     static int compare(const void* left, const void* right);
+    bool valid(int id);
+    bool get_new_message(uint8_t read_buffer[]);
 
     // Wire functions
+    int peek();
     int read();
     int read(uint32_t timeout);
-    int read_n(uint8_t cnt, uint8_t buffer[]);
+    int read_n(int cnt, uint8_t buffer[]);
     int write(uint8_t byte);
-    int write_n(uint8_t cnt, uint8_t buffer[]);
+    int write_n(int cnt, uint8_t buffer[]);
     void clear();
     void flush();
-    
     
   public:
 
@@ -107,7 +106,6 @@ public:
     bool set(String name, void* value);
     bool sync();
     Message get(String name);
-
 };
 
 #endif

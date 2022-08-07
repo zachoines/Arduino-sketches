@@ -12,64 +12,13 @@
 #include <Bluepad32.h>
 #include <SerialMessage.h>
 
-// Data
-#define MESSAGE_SIZE_BYTES 8
-enum MESSAGE { LeftY, LeftX, RightY, RightX, SIZE };
-union shortToBytes {
-  uint8_t bytes[2];
-  short value;
-} converter;
-
-struct Signal {
-  uint8_t buffer[MESSAGE_SIZE_BYTES];
-  short values[MESSAGE::SIZE];
-
-  void toBytes() {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      converter.value = values[i];
-      buffer[i * 2] = converter.bytes[0];
-      buffer[(i * 2) + 1] = converter.bytes[1];
-    }
-  }
-
-  void fromBytes() {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      converter.bytes[0] = buffer[i * 2];
-      converter.bytes[1] = buffer[(i * 2) + 1];
-      values[i] = converter.value;
-    }
-  }
-
-  bool operator == (struct Signal& a)
-  {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      if (abs(values[i] - a.values[i]) > 0) {
-        return false;
-      }
-    }
-    
-    return true;
-  }
-
-  struct Signal& operator = (struct Signal& a)
-  {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      this->values[i] = a.values[i];
-    }
-    toBytes();
-    return *this;
-  }
-};
-
 // Define globals
-Signal newData;
-Signal oldData;
 SerialMessage* comm;
 SerialMessage::MessageConfig messages[] = {                             
-    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
-    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
-    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
-    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING }
+    { "LeftY",  SerialMessage::TYPE::CHAR, SerialMessage::DIR::OUTGOING },
+    { "LeftX",  SerialMessage::TYPE::INT, SerialMessage::DIR::OUTGOING },
+    { "RightY", SerialMessage::TYPE::FLOAT, SerialMessage::DIR::OUTGOING },
+    { "RightX", SerialMessage::TYPE::DOUBLE, SerialMessage::DIR::OUTGOING }
 };
 
 GamepadPtr myGamepads[BP32_MAX_GAMEPADS] = {};
@@ -87,7 +36,7 @@ void setup() {
 
   comm = new SerialMessage(
     &Serial1,
-    1000,
+    10000,
     messages,
     4
   );
@@ -153,14 +102,18 @@ void loop() {
 
   BP32.update();
 
-  short int v1 = 100;
-  short int v2 = 200;
-  short int v3 = 30;
-  short int v4 = 40;
+  char v1 = 'A';
+  int v2 = 1234;
+  float v3 = 30.234f;
+  double v4 = 112.12d;
   comm->set("LeftY", &v1);
+  delay(100);
   comm->set("LeftX", &v2);
+  delay(100);
   comm->set("RightY", &v3);
+  delay(100);
   comm->set("RightX", &v4);
+  delay(2000);
 
   /*
   for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
@@ -201,5 +154,4 @@ void loop() {
     }
   }
   */
-  delay(1000);
 }

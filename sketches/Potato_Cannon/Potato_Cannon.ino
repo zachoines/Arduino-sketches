@@ -1,18 +1,16 @@
-#include <Stream.h>
-#include <SoftwareSerial.h>
-#include <HardwareSerial.h>
 #include <SerialMessage.h>
 #include "RoboClaw.h"
+
+UART Serial2(8, 9, 0, 0);
 
 // Other program constants
 #define address 0x80
 #define DELAY 1000
 
 // Shared program variables
-float thresholdPressure = 100.0;
+float thresholdPressure = 100.0; 
 float maxPressure = 150.0;
-SoftwareSerial serial(16, 17);	
-RoboClaw roboclaw(&serial,10000);
+RoboClaw roboclaw(&Serial2,10000);
 
 // Program state variables
 bool isCompressorActivated = false;
@@ -36,64 +34,13 @@ void toggleSolenoidState();
 bool getCompressorState();
 bool getSolenoidState();
 
-// Data
-#define MESSAGE_SIZE_BYTES 8
-enum MESSAGE { LeftY, LeftX, RightY, RightX, SIZE };
-union shortToBytes {
-  uint8_t bytes[2];
-  short value;
-} converter;
-
-struct Signal {
-  uint8_t buffer[MESSAGE_SIZE_BYTES];
-  short values[MESSAGE::SIZE];
-
-  void toBytes() {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      converter.value = values[i];
-      buffer[i * 2] = converter.bytes[0];
-      buffer[(i * 2) + 1] = converter.bytes[1];
-    }
-  }
-
-  void fromBytes() {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      converter.bytes[0] = buffer[i * 2];
-      converter.bytes[1] = buffer[(i * 2) + 1];
-      values[i] = converter.value;
-    }
-  }
-
-  bool operator == (struct Signal& a)
-  {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      if (abs(values[i] - a.values[i]) > 0) {
-        return false;
-      }
-    }
-    
-    return true;
-  }
-
-  struct Signal& operator = (struct Signal& a)
-  {
-    for (int i = 0; i < MESSAGE::SIZE; i++) {
-      this->values[i] = a.values[i];
-    }
-    toBytes();
-    return *this;
-  }
-};
-
-// Define globals
-Signal oldData;
-Signal newData;
+// Globals Here
 SerialMessage* comm;
 SerialMessage::MessageConfig messages[] = {                             
-    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
-    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
-    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
-    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING }
+    { "LeftY",  SerialMessage::TYPE::CHAR, SerialMessage::DIR::INCOMING },
+    { "LeftX",  SerialMessage::TYPE::INT, SerialMessage::DIR::INCOMING },
+    { "RightY", SerialMessage::TYPE::FLOAT, SerialMessage::DIR::INCOMING },
+    { "RightX", SerialMessage::TYPE::DOUBLE, SerialMessage::DIR::INCOMING }
 };
 
 
@@ -106,7 +53,7 @@ void setup() {
   delay(DELAY);
   comm = new SerialMessage(
     &Serial1,
-    1000,
+    10000,
     messages,
     4
   );
@@ -117,14 +64,16 @@ void setup() {
 
 
 void loop() {
-  while (!comm->sync()) {
-    delay(1000);
+  if (comm->sync()) {
+    SerialMessage::Message m1 = comm->get("LeftY");
+    SerialMessage::Message m2 = comm->get("LeftX");
+    SerialMessage::Message m3 = comm->get("RightY");
+    SerialMessage::Message m4 = comm->get("RightX");
+  } else {
+    delay(200);
   }
 
-  SerialMessage::Message m1 = comm->get("LeftY");
-  SerialMessage::Message m2 = comm->get("LeftX");
-  SerialMessage::Message m3 = comm->get("RightY");
-  SerialMessage::Message m4 = comm->get("RightX");
+  
 
 
 
