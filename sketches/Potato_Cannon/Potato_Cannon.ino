@@ -37,10 +37,10 @@ bool getSolenoidState();
 // Globals Here
 SerialMessage* comm;
 SerialMessage::MessageConfig messages[] = {                             
-    { "LeftY",  SerialMessage::TYPE::CHAR, SerialMessage::DIR::INCOMING },
-    { "LeftX",  SerialMessage::TYPE::INT, SerialMessage::DIR::INCOMING },
-    { "RightY", SerialMessage::TYPE::FLOAT, SerialMessage::DIR::INCOMING },
-    { "RightX", SerialMessage::TYPE::DOUBLE, SerialMessage::DIR::INCOMING }
+    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING }
 };
 
 
@@ -64,19 +64,6 @@ void setup() {
 
 
 void loop() {
-  if (comm->sync()) {
-    SerialMessage::Message m1 = comm->get("LeftY");
-    SerialMessage::Message m2 = comm->get("LeftX");
-    SerialMessage::Message m3 = comm->get("RightY");
-    SerialMessage::Message m4 = comm->get("RightX");
-  } else {
-    delay(200);
-  }
-
-  
-
-
-
 
   // if (Serial1.available() >= MESSAGE_SIZE_BYTES) {
   //   int numRead = Serial1.readBytes(newData.buffer, MESSAGE_SIZE_BYTES);

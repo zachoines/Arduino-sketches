@@ -3,8 +3,9 @@
 #ifndef SerialMessage_h
 #define SerialMessage_h
 #define SLEEP 10
-#define START 0xFF
 #define SIZE 10
+#define START 0xFF
+#define END 0xFF
 
 
 #include <limits.h>

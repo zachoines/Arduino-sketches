@@ -15,10 +15,10 @@
 // Define globals
 SerialMessage* comm;
 SerialMessage::MessageConfig messages[] = {                             
-    { "LeftY",  SerialMessage::TYPE::CHAR, SerialMessage::DIR::OUTGOING },
-    { "LeftX",  SerialMessage::TYPE::INT, SerialMessage::DIR::OUTGOING },
-    { "RightY", SerialMessage::TYPE::FLOAT, SerialMessage::DIR::OUTGOING },
-    { "RightX", SerialMessage::TYPE::DOUBLE, SerialMessage::DIR::OUTGOING }
+    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING }
 };
 
 GamepadPtr myGamepads[BP32_MAX_GAMEPADS] = {};
@@ -101,19 +101,6 @@ void onDisconnectedGamepad(GamepadPtr gp) {
 void loop() {
 
   BP32.update();
-
-  char v1 = 'A';
-  int v2 = 1234;
-  float v3 = 30.234f;
-  double v4 = 112.12d;
-  comm->set("LeftY", &v1);
-  delay(100);
-  comm->set("LeftX", &v2);
-  delay(100);
-  comm->set("RightY", &v3);
-  delay(100);
-  comm->set("RightX", &v4);
-  delay(2000);
 
   /*
   for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {

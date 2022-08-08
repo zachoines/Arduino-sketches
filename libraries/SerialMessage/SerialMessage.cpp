@@ -189,6 +189,7 @@ int SerialMessage::write_n(int cnt, uint8_t buffer[])
     return bytes_written;
 }
 
+
 bool SerialMessage::get_new_message(uint8_t read_buffer[])
 {
     unsigned long start = micros();
@@ -368,7 +369,7 @@ bool SerialMessage::set(String name, void* value)
     
     default:
         if (debug) {
-            Serial.print("WARNING: Message data type is doesnt exist, Please verify messsage configs for: ");
+            Serial.print("WARNING: Message data type doesn't exist, Please verify messsage configs for: ");
             Serial.println(name);
         }
         
