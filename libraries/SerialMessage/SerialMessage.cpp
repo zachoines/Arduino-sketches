@@ -15,8 +15,6 @@ SerialMessage::SerialMessage(HardwareSerial *hserial, uint32_t tout, MessageConf
     this->debug = debug;
     timeout = tout;
 	this->hserial = hserial;
-    max_retry = 100;
-    
 
     qsort(messages, num_messages, sizeof(MessageConfig), compare);
 
@@ -51,7 +49,6 @@ SerialMessage::SerialMessage(SoftwareSerial *sserial, uint32_t tout, MessageConf
     this->debug = debug;
     timeout = tout;
 	this->sserial = sserial;
-    max_retry = 2;
 	hserial = 0;
 }
 #endif
@@ -257,6 +254,24 @@ bool SerialMessage::set(String name, void* value)
 
     switch (config.type)
     {
+    case TYPE::BOOL:
+        bool data_bool;
+        data_bool = *(bool *)value; 
+        converter.b = data_bool;
+        for (int j = 0; j < sizes[TYPE::BOOL]; j++) {
+            write_buffer[j + 2] = converter.bytes[j];
+        }
+        if (debug) {
+            char string_buffer[120];
+            snprintf(string_buffer, sizeof(string_buffer),
+                    "NOTE: Sending bool value %i for message %s to receiver",
+                    data_bool,
+                    config.name);
+            Serial.println(string_buffer);
+        }
+
+        break;
+
     case TYPE::CHAR:
         char data_char;
         data_char = *(char *)value; 
@@ -385,7 +400,7 @@ bool SerialMessage::set(String name, void* value)
 
 bool SerialMessage::sync() {
 
-    converter.l = 0;
+    converter.d = 0;
     int id;
     int bytes_read;
     int index;
@@ -422,6 +437,26 @@ bool SerialMessage::sync() {
 
         switch (config.type)
         {
+        case TYPE::BOOL:
+            bool data_bool;
+            for (int j = 0; j < sizes[TYPE::BOOL]; j++) {
+                converter.bytes[j] = read_buffer[j + 2];
+            }
+
+            data_bool = converter.b; 
+            *(bool*) message->value = data_bool;
+            
+            if (debug) {
+                char string_buffer[120];
+                snprintf(string_buffer, sizeof(string_buffer),
+                        "NOTE: Receiving bool value %i for message %s to receiver",
+                        data_bool,
+                        config.name);
+                Serial.println(string_buffer);
+            }
+            
+            break;
+
         case TYPE::CHAR:
             char data_char;
             for (int j = 0; j < sizes[TYPE::CHAR]; j++) {

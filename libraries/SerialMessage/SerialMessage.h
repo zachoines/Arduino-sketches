@@ -22,6 +22,7 @@
 class SerialMessage {
 public:  
     enum TYPE { 
+        BOOL,
         CHAR, 
         SHORT, 
         INT, 
@@ -48,6 +49,7 @@ public:
     } Message;
 
     static constexpr const char sizes[] = { 
+        sizeof(bool), 
         sizeof(char), 
         sizeof(short int), 
         sizeof(int), 
@@ -60,6 +62,7 @@ public:
 
     union byte_converter {
         uint8_t bytes[sizeof(double)];
+        bool b;
         char c;
         short int s;
         int i;
@@ -71,7 +74,6 @@ public:
     // Variables
     bool debug;
 	uint32_t timeout;
-	uint8_t max_retry;
 	HardwareSerial *hserial;
 #ifdef __AVR__
 	SoftwareSerial *sserial;

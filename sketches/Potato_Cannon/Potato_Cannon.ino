@@ -1,109 +1,154 @@
 #include <SerialMessage.h>
+#include <SoftwareSerial.h>
 #include "RoboClaw.h"
 
-UART Serial2(8, 9, 0, 0);
 
-// Other program constants
-#define address 0x80
-#define DELAY 1000
+// Constants
+#define ADDRESS 0x80
+#define DELAY 500
+#define THRESH_PRESSURE  100.0 
+#define MAX_PRESSURE 150.0
+#define NUM_MESSAGES 6
+#define TIMEOUT 10000
+#define STALE_THRESH 200
+#define DEBUG true
+#define TRANSDUCER_MIN_VOLTAGE 0.455
+#define TRANSDUCER_MAX_VOLTAGE 4.50
 
-// Shared program variables
-float thresholdPressure = 100.0; 
-float maxPressure = 150.0;
-RoboClaw roboclaw(&Serial2,10000);
+
+// Globals Here
+enum STATE { /* Compressor ON/OFF; Solenoid OPEN/CLOSED */
+  OFF,
+  ON,
+  OPEN,
+  CLOSED
+};
+
+enum DEVICE {
+  COMPRESSOR,
+  SOLENOID,
+  num_devices
+};
+
+enum PINS {
+  PRESSURE_TRANSDUCER = A1,
+  SERIAL2_RX = A2, 
+  SERIAL2_TX = A3
+};
+
+enum MESSAGE_DEFS {
+  PAN_Y,
+  PAN_X,
+  TILT_Y,
+  TILT_X,
+  TOGGLE_SOLENOID,
+  TOGGLE_COMPRESSOR
+};
+
+
+// Function hoisting here
+float map(float x, float in_min, float in_max, float out_min, float out_max);
+bool is_stale(SerialMessage::Message message, unsigned long currrent_time);
+bool set_state(DEVICE d, STATE s);
+float get_current_pressure();
+
+
+// Program objects
+STATE DEVICE_STATES[DEVICE::num_devices];
+SerialMessage* comm;
+SerialMessage::Message messages[NUM_MESSAGES];
+SerialMessage::MessageConfig message_configs[] = {                             
+    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
+    { "R2", SerialMessage::TYPE::BOOL, SerialMessage::DIR::INCOMING },
+    { "L2", SerialMessage::TYPE::BOOL, SerialMessage::DIR::INCOMING }
+};
+
+SoftwareSerial Serial2(PINS::SERIAL2_RX, PINS::SERIAL2_TX);	
+RoboClaw roboclaw(&Serial2, TIMEOUT);
+// UART Serial2(8, 9, 0, 0); // For use on RP2040 chips
 
 // Program state variables
 bool isCompressorActivated = false;
 bool isSolenoidActivated = true;
-
-// Physical Button Definitions
-int SOLENOID_VALVE_BUTTON = 16;
-int COMPRESSOR_BUTTON = 17;
-
-// Physical Pin Definitions
-int SOLENOID_VALVE_PIN = 0; // Not hooked up yet
-int COMPRESSOR_PIN = A2; // Not hooked up yet
-int PRESSURE_TRANSDUCER_PIN = A1;
-
-// Function hoisting here
-float map(float x, float in_min, float in_max, float out_min, float out_max);
-float getCurrentPressure();
-void buildNominalPressure(float threshold, int delay);
-void toggleCompressorState();
-void toggleSolenoidState();
-bool getCompressorState();
-bool getSolenoidState();
-
-// Globals Here
-SerialMessage* comm;
-SerialMessage::MessageConfig messages[] = {                             
-    { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
-    { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
-    { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING },
-    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::INCOMING }
-};
+unsigned long currrent_time;
 
 
 void setup() {
   // put your setup code here, to run once:
+  currrent_time = micros();
   roboclaw.begin(38400);
   Serial.begin(9600);
   Serial1.begin(57600);
   while (!Serial1) {;}
-  delay(DELAY);
+
   comm = new SerialMessage(
     &Serial1,
-    10000,
-    messages,
-    4
+    TIMEOUT,
+    message_configs,
+    NUM_MESSAGES,
+    DEBUG
   );
-  Serial.println("Starting...");
-  toggleCompressorState();
-  toggleSolenoidState();
+  
+  if (DEBUG)
+    Serial.println("Starting...");
 }
 
 
 void loop() {
 
-  // if (Serial1.available() >= MESSAGE_SIZE_BYTES) {
-  //   int numRead = Serial1.readBytes(newData.buffer, MESSAGE_SIZE_BYTES);
-  //   newData.fromBytes();
-  //   if (numRead != MESSAGE_SIZE_BYTES) {
-  //     Serial.println("ERROR: Issue reading commands...");
-  //   }
-    
-  //   char buffer[120];
-  //   snprintf(buffer, sizeof(buffer) - 1,
-  //             "New Readings: axis L: %i, %i, axis R: %i, %i",
-  //             newData.values[MESSAGE::LeftY],
-  //             newData.values[MESSAGE::LeftX],
-  //             newData.values[MESSAGE::RightY],
-  //             newData.values[MESSAGE::RightX]
-  //   );
-  //   Serial.println(buffer);
-  //   oldData = newData;
-  // }
-  
-  /*
-  // Condition to build up pressure until threshold
-  if (getCompressorState() && getCurrentPressure() >= thresholdPressure) {
-    // Serial.print("Current pressure is: ");
-    // Serial.println(getCurrentPressure(), 4);
-    toggleCompressorState();
-
-    // Open solenoid
-    if (!getSolenoidState()) {
-      toggleSolenoidState();
-    }
-  } 
-  
-  // Condition to stop building pressure
-  if (getCompressorState() && getCurrentPressure() >= maxPressure) {
-    // Serial.print("Current pressure is: ");
-    // Serial.println(getCurrentPressure(), 4);
-    toggleCompressorState();
+  currrent_time = micros();
+  if (comm->sync()) {
+    messages[MESSAGE_DEFS::PAN_Y] = comm->get("LeftY");
+    messages[MESSAGE_DEFS::PAN_X] = comm->get("LeftX");
+    messages[MESSAGE_DEFS::TILT_Y] = comm->get("RightY");
+    messages[MESSAGE_DEFS::TILT_X] = comm->get("RightX");
+    messages[MESSAGE_DEFS::TOGGLE_SOLENOID] = comm->get("R2");
+    messages[MESSAGE_DEFS::TOGGLE_COMPRESSOR] = comm->get("L2");
+  } else {
+    delay(200);
   }
-  */
+  
+  float current_pressure = get_current_pressure();
+  if (DEBUG) {
+    Serial.print("NOTE: Current pressure is: ");
+    Serial.println(current_pressure, 4);
+  }
+    
+
+  // Fire the air cannon 
+  if (!is_stale(messages[MESSAGE_DEFS::TOGGLE_SOLENOID], currrent_time) && *(bool*) messages[MESSAGE_DEFS::TOGGLE_SOLENOID].value && current_pressure > THRESH_PRESSURE) 
+  {
+    STATE previous_compressor_state = get_state(DEVICE::COMPRESSOR); 
+    set_state(DEVICE::COMPRESSOR, STATE::OFF); // AVOID too much current draw, so turn off
+    set_state(DEVICE::SOLENOID, STATE::OPEN);
+    delay(DELAY);
+    set_state(DEVICE::SOLENOID, STATE::CLOSED);
+    set_state(DEVICE::COMPRESSOR, previous_compressor_state);
+  }
+
+  // Turn on the compresssor if toggled
+  current_pressure = get_current_pressure();
+  if (
+    !is_stale(messages[MESSAGE_DEFS::TOGGLE_COMPRESSOR], currrent_time) && 
+    *(bool*) messages[MESSAGE_DEFS::TOGGLE_COMPRESSOR].value &&
+    get_state(DEVICE::COMPRESSOR) == STATE::OFF &&
+    current_pressure < MAX_PRESSURE)
+  {
+    set_state(DEVICE::COMPRESSOR, STATE::ON);
+  }
+
+  
+  // Turn off compressor if over MAX
+  if (
+    get_state(DEVICE::COMPRESSOR) == STATE::ON &&
+    current_pressure >= MAX_PRESSURE
+  ) 
+  {
+    set_state(DEVICE::COMPRESSOR, STATE::OFF);
+  }
 }
 
 
@@ -112,49 +157,82 @@ float map(float x, float in_min, float in_max, float out_min, float out_max) {
 }
 
 
-float getCurrentPressure() {
+float get_current_pressure() {
   float conversion_factor = 5.0 / 1024;
-  uint16_t result = analogRead(PRESSURE_TRANSDUCER_PIN);
+  uint16_t result = analogRead(PINS::PRESSURE_TRANSDUCER);
   float voltage = (result - 1) * conversion_factor;
   // Serial.println(voltage, 4);
   // Serial.print("Analogue voltage is: ");
-  return map(voltage, 0.455, 4.5, 0.0, 150.0); // Output specs of pressure-transducer. TODO:: Export as globals
+  return map(voltage, TRANSDUCER_MIN_VOLTAGE, TRANSDUCER_MAX_VOLTAGE, 0.0, MAX_PRESSURE); // Output specs of pressure-transducer. TODO:: Export as globals
 }
 
 
-void toggleCompressorState() {
-  isCompressorActivated = !isCompressorActivated;
-  if (isCompressorActivated) {
-    roboclaw.ForwardM1(address, 127);
-    delay(DELAY);
-    Serial.println("Compressor running...");
-  } else {
-    roboclaw.ForwardM1(address, 0);
-    delay(DELAY);
-    Serial.println("Compressor stopped...");
+bool is_stale(SerialMessage::Message message, unsigned long currrent_time) {
+  return (message.timestamp - currrent_time > STALE_THRESH);
+}
+
+
+STATE get_state(DEVICE d) {
+  return DEVICE_STATES[d];
+}
+
+
+bool set_state(DEVICE d, STATE s) {
+  switch (d)
+  {
+  case DEVICE::COMPRESSOR:
+    switch (s)
+    {
+    case STATE::OFF:
+      roboclaw.ForwardM1(ADDRESS, 127);
+      if (DEBUG)
+        Serial.println("NOTE: Compressor off.");
+      
+      break;
+    
+    case STATE::ON:
+      roboclaw.ForwardM1(ADDRESS, 127);
+      if (DEBUG)
+        Serial.println("NOTE: Compressor on.");
+      
+      break;
+
+    default:
+      if (DEBUG)
+        Serial.print("WARNING: Not valid state for compressor.");
+      return false;
+    }
+
+    DEVICE_STATES[d] = s;    
+    return true;
+  
+  case DEVICE::SOLENOID:
+    switch (s)
+      {
+      case STATE::CLOSED:
+        roboclaw.ForwardM2(ADDRESS, 0);
+        if (DEBUG)
+          Serial.println("NOTE: Solenoid off.");
+
+        break;
+      
+      case STATE::OPEN:
+        roboclaw.ForwardM2(ADDRESS, 127);
+        if (DEBUG)
+          Serial.println("NOTE: Solenoid on.");
+        
+        break;
+
+      default:
+        if (DEBUG)
+          Serial.print("WARNING: Not valid state for solenoid.");
+        return false;
+      }
+      
+      DEVICE_STATES[d] = s;
+      return true;
+
+  default:
+    return false;
   }
-}
-
-
-void toggleSolenoidState() {
-  isSolenoidActivated = !isSolenoidActivated;
-  if (isSolenoidActivated) {
-    roboclaw.ForwardM2(address, 127);
-    delay(DELAY);
-    Serial.println("Solenoid on...");
-  } else {
-    roboclaw.ForwardM2(address, 0);
-    delay(DELAY);
-    Serial.println("Solenoid off...");
-  } 
-}
-
-
-bool getCompressorState() {
-  return isCompressorActivated;
-}
-
-
-bool getSolenoidState() {
-  return isCompressorActivated;
 }

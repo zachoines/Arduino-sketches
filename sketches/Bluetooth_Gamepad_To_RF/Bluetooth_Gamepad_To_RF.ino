@@ -13,22 +13,25 @@
 #include <SerialMessage.h>
 
 // Define globals
+int num_messages = 6;
+int timeout = 10000;
 SerialMessage* comm;
 SerialMessage::MessageConfig messages[] = {                             
     { "LeftY",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
     { "LeftX",  SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
     { "RightY", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
-    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING }
+    { "RightX", SerialMessage::TYPE::SHORT, SerialMessage::DIR::OUTGOING },
+    { "R2", SerialMessage::TYPE::BOOL, SerialMessage::DIR::OUTGOING },
+    { "L2", SerialMessage::TYPE::BOOL, SerialMessage::DIR::OUTGOING }
 };
 
 GamepadPtr myGamepads[BP32_MAX_GAMEPADS] = {};
 
 void setup() {
-  // Initialize serial
+
   Serial.begin(9600);
   Serial1.begin(57600);
   while (!Serial1) {;}
-  while (!Serial) {;}
 
   String fv = BP32.firmwareVersion();
   Serial.print("Firmware version installed: ");
@@ -36,9 +39,10 @@ void setup() {
 
   comm = new SerialMessage(
     &Serial1,
-    10000,
+    timeout,
     messages,
-    4
+    num_messages,
+    true
   );
   
 
@@ -102,43 +106,20 @@ void loop() {
 
   BP32.update();
 
-  /*
+  
   for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
     GamepadPtr myGamepad = myGamepads[i];
 
     if (myGamepad && myGamepad->isConnected()) {
 
 
-      // comm->set("LeftY", (void*)myGamepad->axisY());
-      // comm->set("LeftX", (void*)myGamepad->axisX());
-      // comm->set("RightY", (void*)myGamepad->axisRY());
-      // comm->set("RightX", (void*)myGamepad->axisRX());
-      comm->sync();
-    
-      newData.values[MESSAGE::LeftY] = myGamepad->axisY();
-      newData.values[MESSAGE::LeftX] = myGamepad->axisX();
-      newData.values[MESSAGE::RightY] = myGamepad->axisRY();
-      newData.values[MESSAGE::RightX] = myGamepad->axisRX();
-      newData.toBytes();
-
-      if (!(newData == oldData)) {
-        if (Serial1.write(newData.buffer, MESSAGE_SIZE_BYTES) == MESSAGE_SIZE_BYTES) {
-          unsigned long clocktime = millis();
-          Serial.print(clocktime, 1);  
-          Serial.println(": message sent");
-          char buffer[120];
-          snprintf(buffer, sizeof(buffer) - 1,
-                  "New Readings: axis L: %4li, %4li, axis R: %4li, %4li",
-                  newData.values[MESSAGE::LeftY],
-                  newData.values[MESSAGE::LeftX],
-                  newData.values[MESSAGE::RightY],
-                  newData.values[MESSAGE::RightX]);
-          Serial.println(buffer);
-        };
-      }
-
-      oldData = newData;
+      comm->set("LeftY", (void*)myGamepad->axisY());
+      comm->set("LeftX", (void*)myGamepad->axisX());
+      comm->set("RightY", (void*)myGamepad->axisRY());
+      comm->set("RightX", (void*)myGamepad->axisRX());
+      comm->set("R2", (void*)myGamepad->r2());
+      comm->set("L2", (void*)myGamepad->l2());
+      delay(200);
     }
   }
-  */
 }
